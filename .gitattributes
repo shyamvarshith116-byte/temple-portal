@@ -1,0 +1,19 @@
+# Normalize line endings: store as LF, checkout as native
+* text=auto eol=lf
+
+# Force LF for all source and config files
+*.ts    text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.prisma text eol=lf
+*.sql   text eol=lf
+*.env.example text eol=lf
+*.gitignore   text eol=lf
+
+# Binary files — never mangle
+*.png   binary
+*.jpg   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary

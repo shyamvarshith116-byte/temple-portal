@@ -1,0 +1,43 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Build output ──────────────────────────────────────────────────────────────
+dist/
+build/
+*.tsbuildinfo
+
+# ── Environment variables (NEVER commit secrets) ──────────────────────────────
+.env
+.env.local
+.env.*.local
+backend/.env
+# Keep .env.example files — they document required vars without secrets
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+D:/pgsql/
+
+# ── PostgreSQL local data ──────────────────────────────────────────────────────
+pgsql/
+*.pid
+
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+
+# ── Prisma ────────────────────────────────────────────────────────────────────
+# Keep prisma/schema.prisma and prisma/migrations — they ARE version-controlled
+# Only ignore generated client if you regenerate on install
+# prisma/generated/
+
+# ── Test coverage ─────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Temp / scratch ────────────────────────────────────────────────────────────
+extract-share.ps1

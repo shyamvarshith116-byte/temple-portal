@@ -1,0 +1,29 @@
+{
+  "name": "temple-prasadam-portal-db",
+  "version": "1.0.0",
+  "description": "Common PostgreSQL database and Prisma ORM layer for Smart Multi-Temple Prasadam Booking Portal",
+  "main": "dist/index.js",
+  "scripts": {
+    "prisma:validate": "prisma validate",
+    "prisma:generate": "prisma generate",
+    "prisma:format": "prisma format",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

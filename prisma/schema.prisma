@@ -1,0 +1,809 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MediaAssetType {
+  BANNER
+  ITEM_THUMBNAIL
+  CONTAINER_COVER
+  QR_CODE
+  DOCUMENT
+  GENERAL
+}
+
+enum ContainerLayout {
+  GRID
+  CAROUSEL
+  FEATURED_BANNER
+  LIST
+}
+
+enum PrasadamStatus {
+  AVAILABLE
+  SOLD_OUT
+  DISCONTINUED
+  ARCHIVED
+}
+
+enum MovementType {
+  RESTOCK
+  RESERVATION_HOLD
+  RESERVATION_RELEASE
+  ORDER_FULFILLMENT
+  SPOILAGE_WASTE
+  AUDIT_ADJUSTMENT
+}
+
+enum ReservationStatus {
+  ACTIVE
+  COMMITTED
+  RELEASED_EXPIRED
+  CANCELLED
+}
+
+enum BookingStatus {
+  DRAFT
+  PENDING_PAYMENT
+  CONFIRMED
+  READY_FOR_PICKUP
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+  EXPIRED
+}
+
+enum PaymentGateway {
+  RAZORPAY
+  STRIPE
+  UPI_INTENT
+  MANUAL_VERIFIED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum RefundStatus {
+  INITIATED
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+enum QrStatus {
+  ISSUED
+  SCANNED
+  EXPIRED
+  REVOKED
+}
+
+enum LocationPurpose {
+  GEOFENCE_PICKUP_CHECK
+  NEARBY_TEMPLE_DISCOVERY
+}
+
+enum NotificationChannel {
+  IN_APP
+  SMS
+  WHATSAPP
+  EMAIL
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  PICKUP_REMINDER
+  ADMIN_APPROVAL
+  STOCK_ALERT
+  SUPPORT_UPDATE
+  PAYMENT_RECEIPT
+}
+
+enum TicketCategory {
+  BOOKING
+  PAYMENT
+  PRASADAM_QUALITY
+  PICKUP_ISSUE
+  GENERAL
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum AiMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum AiConversationStatus {
+  ACTIVE
+  ARCHIVED
+  EXPIRED
+}
+
+// ==========================================
+// 1. ACCOUNTS AND PERMISSIONS
+// ==========================================
+
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  email           String     @unique @db.VarChar(255)
+  phoneNumber     String?    @unique @map("phone_number") @db.VarChar(20)
+  passwordHash    String?    @map("password_hash") @db.VarChar(255)
+  fullName        String     @map("full_name") @db.VarChar(128)
+  avatarUrl       String?    @map("avatar_url") @db.VarChar(512)
+  status          UserStatus @default(ACTIVE)
+  isEmailVerified Boolean    @default(false) @map("is_email_verified")
+  isPhoneVerified Boolean    @default(false) @map("is_phone_verified")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  userRoles                    UserRole[]            @relation("UserToUserRoles")
+  assignedRoles                UserRole[]            @relation("UserAssignedRoles")
+  adminAccessRequestsSubmitted AdminAccessRequest[]  @relation("UserSubmittedRequests")
+  adminAccessRequestsReviewed  AdminAccessRequest[]  @relation("AdminReviewedRequests")
+  sessions                     Session[]
+  bookings                     Booking[]
+  supportTicketsOpened         SupportTicket[]       @relation("DevoteeTickets")
+  supportTicketsAssigned       SupportTicket[]       @relation("StaffAssignedTickets")
+  supportMessages              SupportMessage[]
+  locationRequests             LocationRequest[]
+  notifications                Notification[]
+  aiConversations              AiConversation[]
+  auditLogs                    AuditLog[]
+  uploadedMedia                MediaAsset[]
+  rescheduledBookings          BookingReschedule[]
+  scannedQrTokens              QrToken[]
+  systemSettingsUpdated        SystemSetting[]
+  inventoryMovementsInitiated  InventoryMovement[]
+
+  @@index([email])
+  @@index([phoneNumber])
+  @@index([status])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(64)
+  description String?  @db.VarChar(255)
+  permissions Json     @default("[]")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  userRoles            UserRole[]
+  targetAccessRequests AdminAccessRequest[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  templeId     String?   @map("temple_id") @db.Uuid
+  assignedById String?   @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime  @default(now()) @map("assigned_at") @db.Timestamptz
+
+  user       User    @relation("UserToUserRoles", fields: [userId], references: [id], onDelete: Cascade)
+  role       Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  temple     Temple? @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  assignedBy User?   @relation("UserAssignedRoles", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, roleId, templeId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([templeId])
+  @@map("user_roles")
+}
+
+model AdminAccessRequest {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @map("user_id") @db.Uuid
+  targetRoleId    String         @map("target_role_id") @db.Uuid
+  templeId        String?        @map("temple_id") @db.Uuid
+  justification   String         @db.Text
+  status          ApprovalStatus @default(PENDING)
+  reviewedById    String?        @map("reviewed_by_id") @db.Uuid
+  rejectionReason String?        @map("rejection_reason") @db.Text
+  reviewedAt      DateTime?      @map("reviewed_at") @db.Timestamptz
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  user       User    @relation("UserSubmittedRequests", fields: [userId], references: [id], onDelete: Cascade)
+  targetRole Role    @relation(fields: [targetRoleId], references: [id], onDelete: Restrict)
+  temple     Temple? @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("AdminReviewedRequests", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([userId])
+  @@index([templeId])
+  @@map("admin_access_requests")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash") @db.VarChar(128)
+  userAgent String?  @map("user_agent") @db.VarChar(512)
+  ipAddress String?  @map("ip_address") @db.VarChar(64)
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ==========================================
+// 2. TEMPLES AND PUBLIC CONTENT
+// ==========================================
+
+model Temple {
+  id           String    @id @default(uuid()) @db.Uuid
+  slug         String    @unique @db.VarChar(100)
+  name         String    @db.VarChar(200)
+  deity        String    @db.VarChar(128)
+  description  String    @db.Text
+  contactEmail String    @map("contact_email") @db.VarChar(255)
+  contactPhone String    @map("contact_phone") @db.VarChar(32)
+  addressLine1 String    @map("address_line1") @db.VarChar(255)
+  city         String    @db.VarChar(100)
+  state        String    @db.VarChar(100)
+  postalCode   String    @map("postal_code") @db.VarChar(20)
+  latitude     Decimal   @db.Decimal(10, 7)
+  longitude    Decimal   @db.Decimal(10, 7)
+  isActive     Boolean   @default(true) @map("is_active")
+  isArchived   Boolean   @default(false) @map("is_archived")
+  archivedAt   DateTime? @map("archived_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  userRoles       UserRole[]
+  adminRequests   AdminAccessRequest[]
+  mediaAssets     MediaAsset[]
+  containers      Container[]
+  prasadamItems   PrasadamItem[]
+  pickupCounters  PickupCounter[]
+  pickupSlots     PickupSlot[]
+  bookings        Booking[]
+  supportTickets  SupportTicket[]
+  notifications   Notification[]
+  aiConversations AiConversation[]
+  inventory       Inventory[]
+
+  @@index([city, state])
+  @@index([isActive, isArchived])
+  @@map("temples")
+}
+
+model MediaAsset {
+  id            String         @id @default(uuid()) @db.Uuid
+  templeId      String?        @map("temple_id") @db.Uuid
+  uploadedById  String?        @map("uploaded_by_id") @db.Uuid
+  fileName      String         @map("file_name") @db.VarChar(255)
+  fileUrl       String         @map("file_url") @db.VarChar(1024)
+  mimeType      String         @map("mime_type") @db.VarChar(100)
+  fileSizeBytes Int            @map("file_size_bytes")
+  altText       String?        @map("alt_text") @db.VarChar(255)
+  assetType     MediaAssetType @default(GENERAL) @map("asset_type")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  temple          Temple?          @relation(fields: [templeId], references: [id], onDelete: SetNull)
+  uploadedBy      User?            @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  containers      Container[]
+  prasadamItems   PrasadamItem[]
+  supportMessages SupportMessage[]
+
+  @@index([templeId])
+  @@index([assetType])
+  @@map("media_assets")
+}
+
+model Container {
+  id           String          @id @default(uuid()) @db.Uuid
+  templeId     String          @map("temple_id") @db.Uuid
+  slug         String          @db.VarChar(100)
+  title        String          @db.VarChar(150)
+  description  String?         @db.Text
+  coverMediaId String?         @map("cover_media_id") @db.Uuid
+  layoutType   ContainerLayout @default(GRID) @map("layout_type")
+  displayOrder Int             @default(0) @map("display_order")
+  isPublished  Boolean         @default(true) @map("is_published")
+  isArchived   Boolean         @default(false) @map("is_archived")
+  publishedAt  DateTime?       @map("published_at") @db.Timestamptz
+  archivedAt   DateTime?       @map("archived_at") @db.Timestamptz
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  temple         Temple          @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  coverMedia     MediaAsset?     @relation(fields: [coverMediaId], references: [id], onDelete: SetNull)
+  containerItems ContainerItem[]
+
+  @@unique([templeId, slug])
+  @@index([templeId, displayOrder])
+  @@index([isPublished, isArchived])
+  @@map("containers")
+}
+
+model PrasadamItem {
+  id                     String         @id @default(uuid()) @db.Uuid
+  templeId               String         @map("temple_id") @db.Uuid
+  slug                   String         @db.VarChar(100)
+  name                   String         @db.VarChar(200)
+  description            String         @db.Text
+  price                  Decimal        @db.Decimal(10, 2)
+  ingredients            String?        @db.Text
+  allergens              String?        @db.VarChar(255)
+  shelfLifeHours         Int            @default(24) @map("shelf_life_hours")
+  isPerishable           Boolean        @default(true) @map("is_perishable")
+  maxQuantityPerDevotee  Int            @default(10) @map("max_quantity_per_devotee")
+  preparationTimeMinutes Int            @default(0) @map("preparation_time_minutes")
+  thumbnailMediaId       String?        @map("thumbnail_media_id") @db.Uuid
+  displayOrder           Int            @default(0) @map("display_order")
+  status                 PrasadamStatus @default(AVAILABLE)
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  temple         Temple          @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  thumbnailMedia MediaAsset?     @relation(fields: [thumbnailMediaId], references: [id], onDelete: SetNull)
+  inventory      Inventory?
+  containerItems ContainerItem[]
+  bookingItems   BookingItem[]
+
+  @@unique([templeId, slug])
+  @@index([templeId, status])
+  @@map("prasadam_items")
+}
+
+model ContainerItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  containerId    String   @map("container_id") @db.Uuid
+  prasadamItemId String   @map("prasadam_item_id") @db.Uuid
+  displayOrder   Int      @default(0) @map("display_order")
+  isHighlighted  Boolean  @default(false) @map("is_highlighted")
+  addedAt        DateTime @default(now()) @map("added_at") @db.Timestamptz
+
+  container    Container    @relation(fields: [containerId], references: [id], onDelete: Cascade)
+  prasadamItem PrasadamItem @relation(fields: [prasadamItemId], references: [id], onDelete: Cascade)
+
+  @@unique([containerId, prasadamItemId])
+  @@index([containerId, displayOrder])
+  @@map("container_items")
+}
+
+// ==========================================
+// 3. INVENTORY AND RESERVATIONS
+// ==========================================
+
+model Inventory {
+  id                String    @id @default(uuid()) @db.Uuid
+  prasadamItemId    String    @unique @map("prasadam_item_id") @db.Uuid
+  templeId          String    @map("temple_id") @db.Uuid
+  quantityAvailable Int       @default(0) @map("quantity_available")
+  quantityReserved  Int       @default(0) @map("quantity_reserved")
+  lowStockThreshold Int       @default(10) @map("low_stock_threshold")
+  safetyBuffer      Int       @default(0) @map("safety_buffer")
+  isUnlimited       Boolean   @default(false) @map("is_unlimited")
+  lockVersion       Int       @default(0) @map("lock_version")
+  lastRestockedAt   DateTime? @map("last_restocked_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  prasadamItem PrasadamItem           @relation(fields: [prasadamItemId], references: [id], onDelete: Cascade)
+  temple       Temple                 @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  movements    InventoryMovement[]
+  reservations InventoryReservation[]
+
+  @@index([templeId])
+  @@map("inventory")
+}
+
+model InventoryMovement {
+  id             String       @id @default(uuid()) @db.Uuid
+  inventoryId    String       @map("inventory_id") @db.Uuid
+  movementType   MovementType @map("movement_type")
+  quantityChange Int          @map("quantity_change")
+  quantityBefore Int          @map("quantity_before")
+  quantityAfter  Int          @map("quantity_after")
+  referenceType  String?      @map("reference_type") @db.VarChar(64)
+  referenceId    String?      @map("reference_id") @db.VarChar(64)
+  notes          String?      @db.Text
+  initiatedById  String?      @map("initiated_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  inventory   Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  initiatedBy User?     @relation(fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  @@index([inventoryId, createdAt])
+  @@index([referenceId])
+  @@map("inventory_movements")
+}
+
+model InventoryReservation {
+  id          String            @id @default(uuid()) @db.Uuid
+  inventoryId String            @map("inventory_id") @db.Uuid
+  bookingId   String            @map("booking_id") @db.Uuid
+  quantity    Int
+  status      ReservationStatus @default(ACTIVE)
+  expiresAt   DateTime          @map("expires_at") @db.Timestamptz
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  inventory Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt, status])
+  @@index([bookingId])
+  @@map("inventory_reservations")
+}
+
+// ==========================================
+// 4. BOOKING, PAYMENT, QR AND PICKUP
+// ==========================================
+
+model PickupCounter {
+  id                  String   @id @default(uuid()) @db.Uuid
+  templeId            String   @map("temple_id") @db.Uuid
+  counterNumber       String   @map("counter_number") @db.VarChar(50)
+  name                String   @db.VarChar(100)
+  locationDescription String?  @map("location_description") @db.VarChar(255)
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  temple   Temple       @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  slots    PickupSlot[]
+  bookings Booking[]
+
+  @@unique([templeId, counterNumber])
+  @@map("pickup_counters")
+}
+
+model PickupSlot {
+  id          String   @id @default(uuid()) @db.Uuid
+  templeId    String   @map("temple_id") @db.Uuid
+  counterId   String   @map("counter_id") @db.Uuid
+  slotDate    DateTime @map("slot_date") @db.Date
+  startTime   DateTime @map("start_time") @db.Time
+  endTime     DateTime @map("end_time") @db.Time
+  capacity    Int
+  bookedCount Int      @default(0) @map("booked_count")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  temple          Temple              @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  counter         PickupCounter       @relation(fields: [counterId], references: [id], onDelete: Cascade)
+  bookings        Booking[]
+  rescheduledFrom BookingReschedule[] @relation("RescheduledFromSlot")
+  rescheduledTo   BookingReschedule[] @relation("RescheduledToSlot")
+
+  @@unique([counterId, slotDate, startTime, endTime])
+  @@index([templeId, slotDate])
+  @@map("pickup_slots")
+}
+
+model Booking {
+  id                      String        @id @default(uuid()) @db.Uuid
+  bookingReference        String        @unique @map("booking_reference") @db.VarChar(32)
+  devoteeId               String        @map("devotee_id") @db.Uuid
+  templeId                String        @map("temple_id") @db.Uuid
+  pickupSlotId            String        @map("pickup_slot_id") @db.Uuid
+  pickupCounterId         String        @map("pickup_counter_id") @db.Uuid
+  status                  BookingStatus @default(DRAFT)
+  totalAmount             Decimal       @map("total_amount") @db.Decimal(10, 2)
+  devoteeNameSnapshot     String        @map("devotee_name_snapshot") @db.VarChar(128)
+  devoteePhoneSnapshot    String        @map("devotee_phone_snapshot") @db.VarChar(32)
+  specialInstructions     String?       @map("special_instructions") @db.Text
+  cancellationReason      String?       @map("cancellation_reason") @db.Text
+  cancellationRequestedAt DateTime?     @map("cancellation_requested_at") @db.Timestamptz
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  devotee              User                   @relation(fields: [devoteeId], references: [id], onDelete: Restrict)
+  temple               Temple                 @relation(fields: [templeId], references: [id], onDelete: Restrict)
+  pickupSlot           PickupSlot             @relation(fields: [pickupSlotId], references: [id], onDelete: Restrict)
+  pickupCounter        PickupCounter          @relation(fields: [pickupCounterId], references: [id], onDelete: Restrict)
+  bookingItems         BookingItem[]
+  payments             Payment[]
+  reschedules          BookingReschedule[]
+  qrToken              QrToken?
+  inventoryReservations InventoryReservation[]
+  supportTickets       SupportTicket[]
+
+  @@index([devoteeId, createdAt])
+  @@index([templeId, status])
+  @@index([pickupSlotId])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  bookingId          String   @map("booking_id") @db.Uuid
+  prasadamItemId     String   @map("prasadam_item_id") @db.Uuid
+  itemNameSnapshot   String   @map("item_name_snapshot") @db.VarChar(200)
+  itemSkuSnapshot    String?  @map("item_sku_snapshot") @db.VarChar(64)
+  unitPriceSnapshot  Decimal  @map("unit_price_snapshot") @db.Decimal(10, 2)
+  quantity           Int
+  lineTotal          Decimal  @map("line_total") @db.Decimal(10, 2)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  prasadamItem PrasadamItem @relation(fields: [prasadamItemId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([prasadamItemId])
+  @@map("booking_items")
+}
+
+model BookingReschedule {
+  id             String   @id @default(uuid()) @db.Uuid
+  bookingId      String   @map("booking_id") @db.Uuid
+  previousSlotId String   @map("previous_slot_id") @db.Uuid
+  newSlotId      String   @map("new_slot_id") @db.Uuid
+  reason         String?  @db.Text
+  requestedById  String   @map("requested_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  booking      Booking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  previousSlot PickupSlot @relation("RescheduledFromSlot", fields: [previousSlotId], references: [id], onDelete: Restrict)
+  newSlot      PickupSlot @relation("RescheduledToSlot", fields: [newSlotId], references: [id], onDelete: Restrict)
+  requestedBy  User       @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@map("booking_reschedules")
+}
+
+model Payment {
+  id                     String         @id @default(uuid()) @db.Uuid
+  bookingId              String         @map("booking_id") @db.Uuid
+  idempotencyKey         String         @unique @map("idempotency_key") @db.VarChar(128)
+  gateway                PaymentGateway
+  gatewayOrderId         String?        @map("gateway_order_id") @db.VarChar(128)
+  gatewayPaymentId       String?        @map("gateway_payment_id") @db.VarChar(128)
+  gatewaySignature       String?        @map("gateway_signature") @db.VarChar(255)
+  amount                 Decimal        @db.Decimal(10, 2)
+  currency               String         @default("INR") @db.VarChar(10)
+  status                 PaymentStatus  @default(PENDING)
+  gatewayResponsePayload Json?          @map("gateway_response_payload")
+  paidAt                 DateTime?      @map("paid_at") @db.Timestamptz
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  booking Booking  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Refund {
+  id              String       @id @default(uuid()) @db.Uuid
+  paymentId       String       @map("payment_id") @db.Uuid
+  gatewayRefundId String?      @unique @map("gateway_refund_id") @db.VarChar(128)
+  amount          Decimal      @db.Decimal(10, 2)
+  reason          String       @db.Text
+  status          RefundStatus @default(INITIATED)
+  processedAt     DateTime?    @map("processed_at") @db.Timestamptz
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+model QrToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  bookingId   String    @unique @map("booking_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash") @db.VarChar(128)
+  salt        String    @db.VarChar(64)
+  shortCode   String    @map("short_code") @db.VarChar(16)
+  status      QrStatus  @default(ISSUED)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz
+  scannedAt   DateTime? @map("scanned_at") @db.Timestamptz
+  scannedById String?   @map("scanned_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  scannedBy User?   @relation(fields: [scannedById], references: [id], onDelete: SetNull)
+
+  @@index([tokenHash])
+  @@index([shortCode])
+  @@map("qr_tokens")
+}
+
+// ==========================================
+// 5. LOCATION, NOTIFICATIONS AND SUPPORT
+// ==========================================
+
+model LocationRequest {
+  id                String          @id @default(uuid()) @db.Uuid
+  userId            String          @map("user_id") @db.Uuid
+  purpose           LocationPurpose
+  latitude          Decimal         @db.Decimal(10, 7)
+  longitude         Decimal         @db.Decimal(10, 7)
+  accuracyMeters    Decimal?        @map("accuracy_meters") @db.Decimal(8, 2)
+  isWithinGeofence  Boolean         @default(false) @map("is_within_geofence")
+  ipAddress         String?         @map("ip_address") @db.VarChar(64)
+  requestedAt       DateTime        @default(now()) @map("requested_at") @db.Timestamptz
+  expiresAt         DateTime        @map("expires_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, requestedAt])
+  @@index([expiresAt])
+  @@map("location_requests")
+}
+
+model Notification {
+  id               String              @id @default(uuid()) @db.Uuid
+  userId           String              @map("user_id") @db.Uuid
+  templeId         String?             @map("temple_id") @db.Uuid
+  title            String              @db.VarChar(200)
+  message          String              @db.Text
+  channel          NotificationChannel @default(IN_APP)
+  notificationType NotificationType    @map("notification_type")
+  isRead           Boolean             @default(false) @map("is_read")
+  metadata         Json?
+  sentAt           DateTime            @default(now()) @map("sent_at") @db.Timestamptz
+  readAt           DateTime?           @map("read_at") @db.Timestamptz
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  temple Temple? @relation(fields: [templeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model SupportTicket {
+  id           String         @id @default(uuid()) @db.Uuid
+  ticketNumber String         @unique @map("ticket_number") @db.VarChar(32)
+  devoteeId    String         @map("devotee_id") @db.Uuid
+  templeId     String?        @map("temple_id") @db.Uuid
+  bookingId    String?        @map("booking_id") @db.Uuid
+  subject      String         @db.VarChar(255)
+  category     TicketCategory @default(GENERAL)
+  priority     TicketPriority @default(MEDIUM)
+  status       TicketStatus   @default(OPEN)
+  assignedToId String?        @map("assigned_to_id") @db.Uuid
+  resolvedAt   DateTime?      @map("resolved_at") @db.Timestamptz
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  devotee    User             @relation("DevoteeTickets", fields: [devoteeId], references: [id], onDelete: Restrict)
+  temple     Temple?          @relation(fields: [templeId], references: [id], onDelete: SetNull)
+  booking    Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  assignedTo User?            @relation("StaffAssignedTickets", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages   SupportMessage[]
+
+  @@index([devoteeId])
+  @@index([templeId, status])
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id                String   @id @default(uuid()) @db.Uuid
+  ticketId          String   @map("ticket_id") @db.Uuid
+  senderId          String   @map("sender_id") @db.Uuid
+  isStaff           Boolean  @default(false) @map("is_staff")
+  messageText       String   @map("message_text") @db.Text
+  attachmentMediaId String?  @map("attachment_media_id") @db.Uuid
+  isInternalNote    Boolean  @default(false) @map("is_internal_note")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  ticket          SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender          User          @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  attachmentMedia MediaAsset?   @relation(fields: [attachmentMediaId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
+}
+
+// ==========================================
+// 6. AI CONVERSATIONS, AUDIT AND SETTINGS
+// ==========================================
+
+model AiConversation {
+  id           String               @id @default(uuid()) @db.Uuid
+  userId       String               @map("user_id") @db.Uuid
+  templeId     String?              @map("temple_id") @db.Uuid
+  sessionToken String?              @map("session_token") @db.VarChar(128)
+  status       AiConversationStatus @default(ACTIVE)
+  expiresAt    DateTime             @map("expires_at") @db.Timestamptz
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  temple   Temple?     @relation(fields: [templeId], references: [id], onDelete: SetNull)
+  messages AiMessage[]
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String        @id @default(uuid()) @db.Uuid
+  conversationId String        @map("conversation_id") @db.Uuid
+  role           AiMessageRole
+  content        String        @db.Text
+  tokensUsed     Int?          @map("tokens_used")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  actorId       String?  @map("actor_id") @db.Uuid
+  actorRole     String   @map("actor_role") @db.VarChar(64)
+  action        String   @db.VarChar(64)
+  entityName    String   @map("entity_name") @db.VarChar(64)
+  entityId      String?  @map("entity_id") @db.Uuid
+  previousState Json?    @map("previous_state")
+  newState      Json?    @map("new_state")
+  ipAddress     String?  @map("ip_address") @db.VarChar(64)
+  userAgent     String?  @map("user_agent") @db.VarChar(512)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityName, entityId])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique @db.VarChar(128)
+  value       Json
+  description String?  @db.VarChar(255)
+  isPublic    Boolean  @default(false) @map("is_public")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("system_settings")
+}
